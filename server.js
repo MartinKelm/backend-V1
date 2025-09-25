@@ -1,5 +1,3 @@
-require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -22,12 +20,18 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
-// CORS configuration - Allow all origins temporarily
+// CORS configuration - Updated for your domains
 app.use(cors({
-  origin: true, // Allow all origins for debugging
+  origin: [
+    'https://vorschau.socialmediakampagnen.com',
+    'https://socialmediakampagnen.com',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200 // For legacy browser support
 }));
 
 // Logging middleware
@@ -54,9 +58,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// API routes
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'SMK Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth',
+      users: '/api/users'
+    }
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -69,101 +87,63 @@ app.use('*', (req, res) => {
 
 // Global error handler
 app.use((error, req, res, next) => {
-  console.error('❌ Global error handler:', error);
-
-  // Handle specific error types
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: error.details
-    });
-  }
-
-  if (error.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      success: false,
-      message: 'Unauthorized access'
-    });
-  }
-
-  if (error.code === 'LIMIT_FILE_SIZE') {
-    return res.status(413).json({
-      success: false,
-      message: 'File size too large'
-    });
-  }
-
-  // CORS errors
-  if (error.message.includes('CORS')) {
-    return res.status(403).json({
-      success: false,
-      message: 'CORS policy violation'
-    });
-  }
-
-  // Database errors
-  if (error.code && error.code.startsWith('P')) {
-    console.error('❌ Database error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Database operation failed'
-    });
-  }
-
-  // Default error response
-  res.status(500).json({
+  console.error('Global error handler:', error);
+  
+  // Don't leak error details in production
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  
+  res.status(error.status || 500).json({
     success: false,
-    message: process.env.NODE_ENV === 'development' 
-      ? error.message 
-      : 'Internal server error'
+    message: error.message || 'Internal server error',
+    ...(isDevelopment && { stack: error.stack })
   });
 });
 
-// Initialize database and start server
+// Graceful shutdown handler
+const gracefulShutdown = (signal) => {
+  console.log(`Received ${signal}. Starting graceful shutdown...`);
+  
+  server.close(() => {
+    console.log('HTTP server closed.');
+    process.exit(0);
+  });
+  
+  // Force close after 10 seconds
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+// Start server
 const startServer = async () => {
   try {
-    console.log('🚀 Starting SMK Authentication Server...');
-    
     // Connect to database
     await connectDatabase();
+    console.log('Database connected successfully');
     
-    // Start server
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`✅ CORS: All origins allowed (debugging mode)`);
-      console.log(`✅ Health check: http://localhost:${PORT}/api/health`);
+    // Start HTTP server
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Health check: http://localhost:${PORT}/api/health`);
     });
-
+    
+    // Handle graceful shutdown
+    process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+    process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+    
+    return server;
+    
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 };
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  process.exit(1);
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-  process.exit(1);
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('📴 SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
-
-process.on('SIGINT', () => {
-  console.log('📴 SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
-
 // Start the server
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = app;
