@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. User and Company Management
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  password  String
+  role      Role     @default(USER)
+  isActive  Boolean  @default(true)
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+model Company {
+  id          String   @id @default(cuid())
+  name        String
+  industry    String?
+  website     String?
+  phone       String?
+  address     String?
+  postalCode  String?
+  city        String?
+  users       User[]
+  campaigns   Campaign[]
+  socialPlatforms SocialPlatform[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("companies")
+}
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+// 2. Campaign Management
+
+model Campaign {
+  id              String          @id @default(cuid())
+  name            String
+  objective       String?
+  status          CampaignStatus  @default(DRAFT)
+  startDate       DateTime
+  endDate         DateTime?
+  companyId       String
+  company         Company         @relation(fields: [companyId], references: [id])
+  campaignTargets CampaignTarget[]
+  contents        Content[]
+  performance     CampaignPerformance[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@map("campaigns")
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+model CampaignTarget {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  platform   String
+  locations  String[]
+  ageMin     Int?
+  ageMax     Int?
+  interests  String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("campaign_targets")
+}
+
+// 3. Content and Platform Management
+
+model Content {
+  id          String       @id @default(cuid())
+  campaignId  String
+  campaign    Campaign     @relation(fields: [campaignId], references: [id])
+  text        String
+  mediaAssets MediaAsset[]
+  publishAt   DateTime
+  isPublished Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("contents")
+}
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  contentId String
+  content   Content  @relation(fields: [contentId], references: [id])
+  url       String
+  type      String
+  createdAt DateTime @default(now())
+
+  @@map("media_assets")
+}
+
+model SocialPlatform {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  apiUrl    String
+  apiKey    String
+  apiSecret String
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("social_platforms")
+}
+
+// 4. Analytics and Admin
+
+model CampaignPerformance {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id])
+  impressions Int      @default(0)
+  clicks      Int      @default(0)
+  conversions Int      @default(0)
+  cost        Float    @default(0)
+  recordedAt  DateTime @default(now())
+
+  @@map("campaign_performance")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
